@@ -384,7 +384,7 @@ function submit_dos_noscf(){
      ##### submit         
      cp -rf ${pwd_str}/${pbs_file} ./
      
-     sed '1c #PBS -N ${2}_${DOS_NOSCF_PATH}' ./${pbs_file} > .pbs-tmp
+     sed '1c #PBS -N ${2}_${DOS_SCF_PATH}' ./${pbs_file} > .pbs-tmp
      mv .pbs-tmp ./${pbs_file}
      
      res=`qsub ${pbs_file} | awk -F "." '{print $1}' `

@@ -31,7 +31,7 @@ VASP_FILES="INCAR KPOINTS POSCAR POTCAR"
 tmp_ID=".work_ID"
 tmp_Path="work_path"
 tmp_IDPath="workpathIDstate"
-taskindex=0
+taskindex=$[0]
 #############
 
 #############
@@ -76,10 +76,6 @@ function check(){
         cd ${pwd_str}
         LScmd="ls"
      else
-#       for s in $(seq 1 $#)
-#         do
-#            str=${str}/${s}
-#         done
         LScmd="ls $1"
      fi
      
@@ -101,7 +97,7 @@ function check(){
 }
 
 ####submit work_1
-function submit_work_1(){
+function submit_work_wait(){
 
      rm -rf ${pwd_str}/.${tmp_ID}   
      
@@ -112,9 +108,9 @@ function submit_work_1(){
         cd ${pwd_str}
         LScmd="ls"
      else
-        for s in $(seq 1 $#)
+        for s in "$@"
           do
-             str=${str}/$s
+               str=${str}/${s} 
           done
         if [ -d $str ];then
           LScmd="ls $str"
@@ -129,7 +125,7 @@ function submit_work_1(){
      do
       if [ -d $a ];then
         if [ ${SUB_PATH}null = "null" ];then
-            cd ${str}/$a
+               cd ${str}/$a
         else
             if [ -d ${str}/$a/${SUB_PATH} ];then
                cd ${str}/$a/${SUB_PATH}
@@ -146,25 +142,28 @@ function submit_work_1(){
               sleep 120       
             else 
                ##### submit         
-               cp -rf ../${pbs_file} ./
+               cp -rf ${pwd_str}/${pbs_file} ./
                
                sed -i '1c #PBS -N '${a}'_'${SUB_PATH}'' ./${pbs_file} 
                
                res=`qsub ${pbs_file} | awk -F "." '{print $1}' `
 
-               echo "$res     ${str}/$a/${SUB_PATH}" >>${pwd_str}/.${tmp_IDPath}
+               if [ ${SUB_PATH}null = "null" ];then
+                  echo "$res     ${str}/$a" >>${pwd_str}/${tmp_ID} 
+               else
+                  echo "$res     ${str}/$a/${SUB_PATH}" >>${pwd_str}/${tmp_ID}  
+               fi
                taskindex=$[$taskindex + 1]
-              break 
+               break 
             fi 
-        done
-        cd ../ 
+        done 
       fi    
      done
 
 }
 
 ####submit work_2
-function submit_work_2(){
+function submit_work(){
 
      rm -rf ${pwd_str}/${tmp_ID}  
       
@@ -175,9 +174,9 @@ function submit_work_2(){
         cd ${pwd_str}
         LScmd="ls"
      else
-        for s in $(seq 1 $#)
+        for s in "$@"
           do
-             str=${str}/${s}
+               str=${str}/${s} 
           done
         if [ -d $str ];then
           LScmd="ls $str"
@@ -202,14 +201,17 @@ function submit_work_2(){
             fi
         fi
         ##### submit       
-        cp -rf ../${pbs_file} ./
+        cp -rf ${pwd_str}/${pbs_file} ./
         
         sed '1c #PBS -N '${a}'_'${SUB_PATH}'' ./${pbs_file} > .pbs-tmp
         mv .pbs-tmp ./${pbs_file}
         
         res=`qsub ${pbs_file} | awk -F "." '{print $1}' `
-
-        echo "$res     ${str}/$a/${SUB_PATH}" >>${pwd_str}/.${tmp_IDPath} 
+        if [ ${SUB_PATH}null = "null" ];then
+             echo "$res     ${str}/$a" >>${pwd_str}/${tmp_ID} 
+        else
+             echo "$res     ${str}/$a/${SUB_PATH}" >>${pwd_str}/${tmp_ID} 
+        fi
         taskindex=$[$taskindex + 1]
         cd  ${str}
       fi    
@@ -221,25 +223,28 @@ function submit_work_2(){
 function submit_dos_scf(){
      ####  $1: path1
      ####  $2: sub-path
-     if [ $# -eq 2 ]
-     then
-       cd ./
-     else
-       echo "error cmd num!" 
-     fi
-     
-###      echo "dos_scf: $1  $2  "
+     path_str=""
+     i=$[0]
+     for s in "$@"
+      do
+            if [ $i -eq 0 ];then
+               path_str=${s}
+            else
+               path_str=${path_str}/${s} 
+            fi
+            i=$[$i + 1]
+      done 
       
-     if [ -d $1/$2 ];then
+     if [ -d ${path_str} ];then
        cd ./
      else
-       echo "$1/$2 is not exist"
+       echo "${path_str} is not exist"
        exit 1
      fi
      
-     cd $1/$2/${DOS_SCF_PATH}
+     cd ${path_str}/${DOS_SCF_PATH}
      
-     if [ `checkfile $1/$2/${DOS_SCF_PATH}/OUTCAR` = "TRUE" ];then
+     if [ `checkfile ${path_str}/${DOS_SCF_PATH}/OUTCAR` = "TRUE" ];then
        grep "General timing and accounting informations" ./OUTCAR >/dev/null
        if [ $? -eq 0 ] 
        then
@@ -264,35 +269,30 @@ function submit_dos_scf(){
           fi
        fi 
        sed -e "s/EXTERNAL_ISTART/0/g"  \
-               -e "s/EXTERNAL_ICHARG/1/g"  \
-               -e "s/EXTERNAL_NEDOS/305/g"  \
-               -e "s/EXTERNAL_ISMEAR/0/g"  \
-               ${incar_temp_path} > ./INCAR 
+           -e "s/EXTERNAL_ICHARG/1/g"  \
+           -e "s/EXTERNAL_NEDOS/305/g"  \
+           -e "s/EXTERNAL_ISMEAR/0/g"  \
+           ${incar_temp_path} > ./INCAR 
      fi
      
-     
-     
-     if [ `check ${1}/${2}/${DOS_SCF_PATH}` = "ERROR" ]
+   
+     if [ `check ${path_str}/${DOS_SCF_PATH}` = "ERROR" ]
      then
-         echo " $1/$2 folder has no files required by VASP calculations!" >> ${pwd_str}/ERROR
+         echo " ${path_str} folder has no files required by VASP calculations!" >> ${pwd_str}/ERROR
          return 1
      fi
   
      ##### submit         
      cp -rf ${pwd_str}/${pbs_file} ./
-     ####echo "pre=$1"
+
      
      na=`echo $1 | awk -F '/' '{print $NF}'`
-     ###echo "${na}"
-     sed -i '1c #PBS -N '${na}'_'${2}'_'${DOS_SCF_PATH}'' ./${pbs_file} 
+
+     sed -i '1c #PBS -N '${na}'_'${DOS_SCF_PATH}'' ./${pbs_file} 
      
      res=`qsub ${pbs_file} | awk -F "." '{print $1}' `
      
-     echo "$res   ${1}/${2}/${DOS_SCF_PATH}  " >> ${pwd_str}/${tmp_ID} 
-     
-    # echo "${1}/${2}/${DOS_SCF_PATH}" >> ${pwd_str}/${tmp_Path}     
-    # echo  "Q">>${pwd_str}/${tmp_IDPath} 
-     
+     echo "$res   ${path_str}/${DOS_SCF_PATH}  " >> ${pwd_str}/${tmp_ID} 
         
      taskindex=$[$taskindex + 1]
 }
@@ -300,19 +300,23 @@ function submit_dos_scf(){
 function submit_dos_noscf(){
      ####  $1: path1
      ####  $2: sub-path
-     if [ $# -eq 2 ]
-     then
-       cd ./
-     else
-       echo "error cmd num!" 
-     fi
+     path_str=""
+     i=$[0]
+     for s in "$@"
+      do
+            if [ $i -eq 0 ];then
+               path_str=${s}
+            else
+               path_str=${path_str}/${s} 
+            fi
+            i=$[$i + 1]
+      done  
 
-###     echo "dos_noscf: $1  $2  "
+###  echo "dos_noscf: $1  $2  "
 
-     cd $1/$2/${DOS_NOSCF_PATH}
-     ##ls  
+     cd ${path_str}/${DOS_NOSCF_PATH}  
 
-     if [ `checkfile $1/$2/${DOS_NOSCF_PATH}/OUTCAR` = "TRUE" ];then
+     if [ `checkfile ${path_str}/${DOS_NOSCF_PATH}/OUTCAR` = "TRUE" ];then
        grep "General timing and accounting informations" ./OUTCAR >/dev/null
        if [ $? -eq 0 ] 
        then
@@ -322,35 +326,18 @@ function submit_dos_noscf(){
        fi
      fi
      
-#     if [ -f ./${INCAR_template} ]
-#     then
-#        incar_temp_path=${INCAR_template}
-#     else
-#        incar_temp_path=${pwd_str}/${INCAR_template}
-#        if [ -f ${incar_temp_path} ]
-#        then
-#           cd ./
-#        else
-#           echo "template file of INCAR is not exit"
-#           return 1
-#        fi
-#        sed -e "s/EXTERNAL_ISTART/1/g"  \
-#             -e "s/EXTERNAL_ICHARG/11/g"  \
-#             -e "s/EXTERNAL_NEDOS/2000/g"  \
-#             -e "s/EXTERNAL_ISMEAR/-5/g"  \
-#             ${incar_temp_path} > ./INCAR 
-#     fi 
+     if [ `checkfile ${path_str}/${DOS_SCF_PATH}/OUTCAR` = "TRUE" ];then
      
-     if [ `checkfile $1/$2/${DOS_SCF_PATH}/OUTCAR` = "TRUE" ];then
-        grep "General timing and accounting informations" $1/$2/${DOS_SCF_PATH}/OUTCAR  >/dev/null
+        grep "General timing and accounting informations" ${path_str}/${DOS_SCF_PATH}/OUTCAR  >/dev/null
+        
         if [ $? -eq 0 ];then
-         cp -rf $1/$2/${DOS_SCF_PATH}/WAVECAR ./
-         cp -rf $1/$2/${DOS_SCF_PATH}/CHGCAR ./
+         mv -rf ${path_str}/${DOS_SCF_PATH}/WAVECAR ./
+         mv -rf ${path_str}/${DOS_SCF_PATH}/CHGCAR ./
          
-         cp -rf $1/$2/${DOS_SCF_PATH}/POSCAR ./       
-         cp -rf $1/$2/${DOS_SCF_PATH}/KPOINTS ./
-         cp -rf $1/$2/${DOS_SCF_PATH}/POTCAR ./
-         cp -rf $1/$2/${DOS_SCF_PATH}/INCAR ./
+         cp -rf ${path_str}/${DOS_SCF_PATH}/POSCAR ./       
+         cp -rf ${path_str}/${DOS_SCF_PATH}/KPOINTS ./
+         cp -rf ${path_str}/${DOS_SCF_PATH}/POTCAR ./
+         cp -rf ${path_str}/${DOS_SCF_PATH}/INCAR ./
          
          row=`grep -n "ISTART"  ./INCAR | awk '{print $1}'| awk -F ':' '{print $1}'`
          if [ x${row} = "x" ]
@@ -390,22 +377,23 @@ function submit_dos_noscf(){
         return 1
      fi
      
-     if [ `checkfile $1/$2/${DOS_NOSCF_PATH}` = "ERROR" ]
+     if [ `checkfile ${path_str}/${DOS_NOSCF_PATH}` = "ERROR" ]
      then
-         echo " $1/$2 folder has no files required by VASP calculations!" >> ${pwd_str}/ERROR
+         echo " ${path_str} folder has no files required by VASP calculations!" >> ${pwd_str}/ERROR
          exit 1
      fi
   
      ##### submit         
      cp -rf ${pwd_str}/${pbs_file} ./
-    ### echo "pre=$1"
+     ###echo "pre=$1"
     
-     na= `echo $1 | awk -F '/' '{print $NF}'`
-     sed -i '1c #PBS -N '${na}'_'${2}'_'${DOS_NOSCF_PATH}'' ./${pbs_file} 
+     na=`echo $1 | awk -F '/' '{print $NF}'`
+     ##echo "$1 = ${na}"
+     sed -i '1c #PBS -N '${na}'_'${DOS_NOSCF_PATH}'' ./${pbs_file} 
 
      
      res=`qsub ${pbs_file} | awk -F "." '{print $1}' `
-     echo "$res     ${1}/${2}/${DOS_SCF_PATH}     Q" >> ${pwd_str}/${tmp_ID}
+     echo "$res     ${path_str}/${DOS_NOSCF_PATH}     Q" >> ${pwd_str}/${tmp_ID}
  
      taskindex=$[$taskindex + 1]
 }
@@ -430,28 +418,28 @@ function submit_dos(){
      do
         ##echo "$a"
         if [ -d $a ];then
-          ####echo "$a submit dos"
           
-          res=`checkfile ${pwd_str}/${tmp_ID}`
+         res=`checkfile ${pwd_str}/${tmp_ID}`
           
          #### echo "res = $res"
           
           if [ ${res} = "FALSE" ];then
              cd $currpath/$a
              str=`pwd`  
-             ####echo "$a---1"    
-             submit_dos_scf   $str  DOS
-             submit_dos_noscf $str  DOS
+                 
+             submit_dos_scf   $str  ${SUB_PATH}
+             submit_dos_noscf $str  ${SUB_PATH}
              cd $currpath
           else
-            ####echo "${a}_DOS_${DOS_SCF_PATH}" 
+             
             grep "${a}/DOS/${DOS_SCF_PATH}" ${pwd_str}/${tmp_ID} >/dev/null
+            
             if [ $? -ne 0 ]
             then
               cd $currpath/$a      
               str=`pwd`
-              ###echo "$a---1"
-              submit_dos_scf $str  DOS
+              
+              submit_dos_scf $str  ${SUB_PATH}
               cd $currpath
             fi
             
@@ -461,8 +449,8 @@ function submit_dos(){
             then
               cd $currpath/$a
               str=`pwd`
-              #####echo "$a---2"
-              submit_dos_noscf $str DOS
+              
+              submit_dos_noscf $str ${SUB_PATH}
               cd $currpath
             fi
           fi         
@@ -512,13 +500,13 @@ function check_work(){
             enery=`read_single_energy $workpath`
             sed -i ''${row}''c' '$b'     '${workpath}'     '$energy'' ${pwd_str}/${file}
          else
-            sed -i ''${row}''c' '$b'     '${workpath}'     error' ${pwd_str}/${file} 
+            sed -i ''${row}''c' '$b'     '${workpath}'      ERROR' ${pwd_str}/${file} 
          fi
        else
-            sed -i ''${row}''c' '$b'     '${workpath}'     '${state}'' ${pwd_str}/${file}
+            sed -i ''${row}''c' '$b'     '${workpath}'     'State_${state}'' ${pwd_str}/${file}
        fi
      done
-    ### rm -rf ${pwd_str}/.tmpfile
+    #### rm -rf ${pwd_str}/.tmpfile
     #### cp -rf ${pwd_str}/${file} ${pwd_str}/.workstate
 }
 function check_work_state(){
@@ -527,13 +515,14 @@ function check_work_state(){
      res="TRUE"
      
      awk '{print $3}' ${pwd_str}/${tmp_ID} >${pwd_str}/.tmp_state_check
-     grep "R" ${pwd_str}/.tmp_state_check >/dev/null
+     
+     grep "State_R" ${pwd_str}/.tmp_state_check >/dev/null
      if [ $? -eq 0 ] 
      then
         res="FALSE"
      fi
      
-     grep "Q" ${pwd_str}/.tmp_state_check >/dev/null
+     grep "State_Q" ${pwd_str}/.tmp_state_check >/dev/null
      if [ $? -eq 0 ] 
      then
         res="FALSE"
@@ -549,30 +538,34 @@ function read_single_energy(){
    if [ $# -eq 0 ];then
         cd ${pwd_str}
    else
-        for s in $(seq 1 $#)
-          do
-             str=${str}/${s}
-          done
+      i=$[0]
+      for s in "$@"
+      do
+        if [ $i -eq 0 ];then
+           str=${s}
+        else
+           str=${str}/${s} 
+        fi
+        i=$[$i + 1]
+      done 
         if [ -d $str ];then
           cd $str
         else
-          echo "${str} is not exit!"
+          echo "${str} in reading energy is not exit!"
           return 1
         fi
    fi
    
-   str_1=${str}/OUTCAR
-   
-   if [ `check_isNormalFinish ${str_1}` = "TRUE" ];then
-      energy=`grep " energy(sigma->0)" ${pwd_str}/$a/OUTCAR | tail -1 | awk '{print $7}'`
+   if [ `check_isNormalFinish ${str}/OUTCAR` = "TRUE" ];then
+      energy=`grep " energy(sigma->0)" ${str}/OUTCAR | tail -1 | awk '{print $7}'`
       echo $energy
       return 0
    else
-      echo "no finished"
+      echo "abnormal output"
       return 1
    fi
 }
-
+############read energy 
 function read_energy(){
      if [ x$1 = "x" ]
      then
@@ -592,7 +585,7 @@ function read_energy(){
                  echo "$1    ERROR_OUTPUT" >>${pwd_str}/energy_out
               fi
            else
-               echo "$1    ERROR_OUTPUT" >>${pwd_str}/energy_out
+                 echo "$1    ERROR_OUTPUT" >>${pwd_str}/energy_out
            fi
          fi
        done
@@ -615,54 +608,36 @@ function read_energy(){
        fi
      fi
 }
-function pre_check_working(){
-     qstat | awk '{ print $1 }' | awk -F "." '{print $1}' > ./.currentWoringID
-     
-     for a in `cat .currentWoringID`
-      do
-         qstat -f $a | grep "$1"
-      done
-
-
-}
 ###delete jobs
 function del_jobs(){
-
-      awk '{print $1}' ${pwd_str}/${tmp_ID} > ${pwd_str}/.tmpfile
-      
-     ###if [ x$1 = "x" ]
-     ###then
-     ###   str=.workID
-     ###else
-     ###   if [ $1 = "DOS" ];then
-     ###     str=${tmp_ID}
-     ###   else
-     ###     str=workID
-     ###   fi
-     ###fi
-     if [ `checkfile ${pwd_str}/.tmpfile` = "TRUE" ];then
+     if [ `checkfile ${pwd_str}/${tmp_ID}` = "TRUE" ];then
+        awk '{print $1}' ${pwd_str}/${tmp_ID} > ${pwd_str}/.tmpfile
         for b in `cat ${pwd_str}/.tmpfile`
         do
            qdel $b
         done
      else
-       return 1 
+        return 1
      fi
 }
+###### main shell ################
+if [ `checkfile ${pwd_str}/${pbs_file}` = "FALSE" ];then
+   echo "pbs file is not found!!!"
+   exit 1
+fi
+
+del_jobs
+rm -rf bash.out
 
 
-###Real-time check
-
-###check
-##submit_work_1
-###33del_jobs DOS
+submit_work
 
 while true
 do
-  submit_dos    
-  if [ `check_work_state` = "TRUE" ];then
+  ####submit_dos    
+  if [ "`check_work_state`x" = "TRUEx" ];then
     break
   fi
-  sleep 10
+  sleep 120
 done
-
+echo "Finished!" >> bash.out

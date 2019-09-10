@@ -336,8 +336,6 @@ function del_jobs(){
 }
 ####submit job_1
 function submit_job_wait(){
-
-     rm -rf ${pwd_str}/.${tmp_ID}   
      
      LScmd=""
      str=${pwd_str}
@@ -454,8 +452,6 @@ function submit_job_wait(){
 
 ####submit job_2
 function submit_job(){
-
-     rm -rf ${pwd_str}/${tmp_ID}  
       
      LScmd=""
      str=${pwd_str}
@@ -502,7 +498,10 @@ function submit_job(){
            fi
         fi
         if [ `check_isNormalFinish ${current_job_path}/OUTCAR` = "TRUE" ];then
+           energy=`read_single_energy ${current_job_path}`
+           echo "${current_job_path}       ${energy}" >> ${pwd_str}/${RUNNING_PATH}_energy.out
            continue
+           
         fi
         
         ##### submit       
@@ -677,74 +676,40 @@ function submit_dos_noscf(){
         
         if [ $? -eq 0 ];then
         
-         cp -rf ${path_str}/${DOS_SCF_PATH}/WAVECAR ./
-         cp -rf ${path_str}/${DOS_SCF_PATH}/CHGCAR ./
-         
-         if [ `checkfile ${path_str}/${DOS_NOSCF_PATH}/POSCAR` = "FALSE" ];then
-            cp -rf ${path_str}/${DOS_SCF_PATH}/POSCAR ./
-         fi
-         if [ `checkfile ${path_str}/${DOS_NOSCF_PATH}/KPOINTS` = "FALSE" ];then       
-            cp -rf ${path_str}/${DOS_SCF_PATH}/KPOINTS ./
-         fi
-         if [ `checkfile ${path_str}/${DOS_NOSCF_PATH}/POTCAR` = "FALSE" ];then
-            cp -rf ${path_str}/${DOS_SCF_PATH}/POTCAR ./
-         fi
-         if [ `checkfile ${path_str}/${DOS_NOSCF_PATH}/INCAR` = "FALSE" ];then
-            cp -rf ${path_str}/${DOS_SCF_PATH}/INCAR ./
-         fi
-         
-         if [ `checkfile ${path_str}/${INCAR_PARA_FILE}` = "TRUE" ]
-         then
-           numi=0
-           for cmdValue in `cat ${path_str}/INCAR_para.in`
-            do
-               newkeyword=`echo ${cmdValue} | awk -F '=' '{print $1}'`
-               row=`grep -n ${newkeyword}  ./INCAR | awk '{print $1}'| awk -F ':' '{print $1}'`
-               numi=$[ $numi + 2 ]
-               if [ x${row} = "x" ]
-               then
-                  sed -i ''${numi}''a' '${cmdValue}'' ./INCAR
-               else
-                  sed -i ''${row}''c' '${cmdValue}''  ./INCAR 
-               fi
-            done
-         fi
-         
-         
-#         row=`grep -n "ISTART"  ./INCAR | awk '{print $1}'| awk -F ':' '{print $1}'`
-#         if [ x${row} = "x" ]
-#         then
-#           sed -i '3a ISTART = 1' ./INCAR
-#         else
-#           sed -i ''${row}''c' ISTART = 1' ./INCAR 
-#         fi
-#         
-#         row=`grep -n "ICHARG"  ./INCAR | awk '{print $1}'| awk -F ':' '{print $1}'`
-#         if [ x${row} = "x" ]
-#         then
-#           sed -i '4a ICHARG = 11' ./INCAR
-#         else
-#           sed -i ''${row}''c' ICHARG = 11' ./INCAR
-#         fi
-#         
-#         row=`grep -n "NEDOS"  ./INCAR | awk '{print $1}'| awk -F ':' '{print $1}'`
-#         if [ x${row} = "x" ]
-#         then
-#           sed -i '10a NEDOS = 2000' ./INCAR
-#         else
-#           sed -i ''${row}''c' NEDOS = 2000' ./INCAR 
-#         fi
-#         
-#         row=`grep -n "ISMEAR"  ./INCAR | awk '{print $1}'| awk -F ':' '{print $1}'`
-#         if [ x${row} = "x" ]
-#         then
-#           sed -i '8a ISMEAR = -5' ./INCAR
-#         else
-#           sed -i ''${row}''c' ISMEAR = -5' ./INCAR 
-#         fi 
+            cp -rf ${path_str}/${DOS_SCF_PATH}/WAVECAR ./
+            cp -rf ${path_str}/${DOS_SCF_PATH}/CHGCAR ./
             
+            if [ `checkfile ${path_str}/${DOS_NOSCF_PATH}/POSCAR` = "FALSE" ];then
+               cp -rf ${path_str}/${DOS_SCF_PATH}/POSCAR ./
+            fi
+            if [ `checkfile ${path_str}/${DOS_NOSCF_PATH}/KPOINTS` = "FALSE" ];then       
+               cp -rf ${path_str}/${DOS_SCF_PATH}/KPOINTS ./
+            fi
+            if [ `checkfile ${path_str}/${DOS_NOSCF_PATH}/POTCAR` = "FALSE" ];then
+               cp -rf ${path_str}/${DOS_SCF_PATH}/POTCAR ./
+            fi
+            if [ `checkfile ${path_str}/${DOS_NOSCF_PATH}/INCAR` = "FALSE" ];then
+               cp -rf ${path_str}/${DOS_SCF_PATH}/INCAR ./
+            fi
+            
+            if [ `checkfile ${path_str}/${INCAR_PARA_FILE}` = "TRUE" ]
+            then
+              numi=0
+              for cmdValue in `cat ${path_str}/INCAR_para.in`
+               do
+                  newkeyword=`echo ${cmdValue} | awk -F '=' '{print $1}'`
+                  row=`grep -n ${newkeyword}  ./INCAR | awk '{print $1}'| awk -F ':' '{print $1}'`
+                  numi=$[ $numi + 2 ]
+                  if [ x${row} = "x" ]
+                  then
+                     sed -i ''${numi}''a' '${cmdValue}'' ./INCAR
+                  else
+                     sed -i ''${row}''c' '${cmdValue}''  ./INCAR 
+                  fi
+               done
+            fi 
         else
-          return 1
+           return 1
         fi
      else
         return 1
@@ -868,28 +833,31 @@ ISMEAR = -5
 EOF
 
 cat>charge_para.in<<EOF
-ISTART = 1
-ICHARG = 11
-NEDOS = 2000
-ISMEAR = -5
+NSW = 0
+LAECHG = T
+LCHARG = T
 EOF
 
 #######del_jobs
 ##########
+
+IS_Series_Running=T
+OPT_PATH="N/OPT"
+
 while true
 do
   INCAR_PARA_FILE=""
-  RUNNING_PATH="OPT"
+  RUNNING_PATH="N/OPT"
   submit_job
-  
+
   ###############echo "submit job do"
-  #INCAR_PARA_FILE="dos_para.in"
-  #RUNNING_PATH="DOS"
-  #submit_dos
-  
-  #INCAR_PARA_FILE="charge_para.in"
-  #RUNNING_PATH="CHARGE"
-  #submit_job    
+  INCAR_PARA_FILE="dos_para.in"
+  RUNNING_PATH="N/dos"
+  submit_dos
+
+  INCAR_PARA_FILE="charge_para.in"
+  RUNNING_PATH="N/bader"
+  submit_job   
    
   if [ "`check_all_jobs_state`x" = "TRUEx" ];then
     break

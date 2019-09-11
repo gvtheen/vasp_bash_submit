@@ -40,9 +40,10 @@ DOS_NOSCF_KPOINTS_FILE=""
 machine_name=`uname -a | awk '{print $2}'`
 pwd_str=`pwd`
 VASP_FILES="INCAR KPOINTS POSCAR POTCAR"
-tmp_ID=".job_ID"
 taskindex=0
 Shellname="$0"
+PrefixShellname=`echo ${Shellname} | awk -F '.' '{print $1}'`
+tmp_ID=".${PrefixShellname}_job_ID"
 #############
 
 #############
@@ -54,7 +55,7 @@ function checkfile(){
         err="TRUE"
      else
         if [ x$2 = "xVASP" ];then 
-           echo " $1 file has no $file_name required by VASP calculations!" >> ${pwd_str}/ERROR
+           echo " $1 file has no $file_name required by VASP calculations!" >> ${pwd_str}/${PrefixShellname}_ERROR
         fi
         err="FALSE"
      fi
@@ -97,9 +98,9 @@ function checkVASPFiles(){
        fi
       done
      
-     if [ ${err} = "ERROR" ]
+     if [ ${err} = "FALSE" ]
      then
-       cat ${pwd_str}/ERROR >> ${pwd_str}/bash.out
+       cat ${pwd_str}/${PrefixShellname}_ERROR >> ${pwd_str}/${PrefixShellname}_bash.out
      fi
      echo $err
 }
@@ -108,9 +109,9 @@ function checkIsRunningJob(){
 
    res="FALSE"
    
-   qstat | awk '{print $1}' | awk -F '.' '{print $1}' | tail -n +3 >${pwd_str}/.tmpRunningID
+   qstat | awk '{print $1}' | awk -F '.' '{print $1}' | tail -n +3 >${pwd_str}/.${Shellname}_tmpRunningID
    
-   for b in `cat ${pwd_str}/.tmpRunningID`
+   for b in `cat ${pwd_str}/.${Shellname}_tmpRunningID`
     do
        qstat -f $b | grep $1 > /dev/null
        if [ $? -eq 0 ]
@@ -126,7 +127,7 @@ function checkIsRunningJob(){
           fi               
        fi
     done
-    rm -rf ${pwd_str}/.tmpRunningID
+    rm -rf ${pwd_str}/.${Shellname}_tmpRunningID
     echo $res
     return 0
 }
@@ -148,13 +149,12 @@ function checkIsRunningShell(){
 
     time_str=`date --date="-24 hour" +%H:%M`
     
-    ps -ef | grep "${Shellname}" | grep -v "grep\|${time_str}" > ${pwd_str}/.tmp_shell
-  #  n=`grep -n "grep" ${pwd_str}/.tmp_shell | awk '{print $1}' |awk -F ':' '{print $1}'`
-  #  sed -i ''${n}''d'' ${pwd_str}/.tmp_shell > /dev/null
+    ps -ef | grep "${Shellname}" | grep -v "grep\|${time_str}" > ${pwd_str}/.${Shellname}_tmp_shell
     
-    cat ${pwd_str}/.tmp_shell | awk '{print $2}' > ${pwd_str}/.tmp_shell2
+    cat ${pwd_str}/.${Shellname}_tmp_shell | awk '{print $2}' > ${pwd_str}/.${Shellname}_tmp_shell2
+    
     res="FALSE"
-    for idi in `cat ${pwd_str}/.tmp_shell2`
+    for idi in `cat ${pwd_str}/.${Shellname}_tmp_shell2`
       do
          ls -la /proc/${idi} | grep "cwd" | awk -F '->' '{print $2}' | grep ${pwd_str} >/dev/null
          if [ $? -eq 0 ];then
@@ -162,7 +162,7 @@ function checkIsRunningShell(){
            break
          fi
       done
-     rm -rf ${pwd_str}/.tmp_shell ${pwd_str}/.tmp_shell2
+     rm -rf ${pwd_str}/.${Shellname}_tmp_shell ${pwd_str}/.${Shellname}_tmp_shell2
      echo $res
      return 0
 }
@@ -184,7 +184,7 @@ function check_job(){
     
  ###   echo "check_job()"
     
-    rm -rf ${pwd_str}/.jobstate
+    rm -rf ${pwd_str}/.${Shellname}_jobstate
     #####  #1: ID_Forlder
     if [ x$1 = "x" ]
      then
@@ -197,9 +197,9 @@ function check_job(){
        exit 1
     fi
     
-    awk '{print $1}' ${pwd_str}/${file} > ${pwd_str}/.tmpfile
+    awk '{print $1}' ${pwd_str}/${file} > ${pwd_str}/.${Shellname}_tmpfile
     
-    for b in `cat ${pwd_str}/.tmpfile`
+    for b in `cat ${pwd_str}/.${Shellname}_tmpfile`
      do
        row=`grep -n $b ${pwd_str}/${file} | awk '{print $1}' | awk -F ':' '{print $1}'`
        
@@ -220,7 +220,7 @@ function check_job(){
           fi
        fi
      done
-    rm -rf ${pwd_str}/.tmpfile
+    rm -rf ${pwd_str}/.${Shellname}_tmpfile
 }
 function check_all_jobs_state(){
 
@@ -228,21 +228,21 @@ function check_all_jobs_state(){
      
      res="TRUE"
      
-     awk '{print $3}' ${pwd_str}/${tmp_ID} >${pwd_str}/.tmp_state_check
+     awk '{print $3}' ${pwd_str}/${tmp_ID} >${pwd_str}/.${Shellname}_tmp_state_check
      
-     grep "State_R" ${pwd_str}/.tmp_state_check >/dev/null
+     grep "State_R" ${pwd_str}/.${Shellname}_tmp_state_check >/dev/null
      if [ $? -eq 0 ] 
      then
         res="FALSE"
      fi
      
-     grep "State_Q" ${pwd_str}/.tmp_state_check >/dev/null
+     grep "State_Q" ${pwd_str}/.${Shellname}_tmp_state_check >/dev/null
      if [ $? -eq 0 ] 
      then
         res="FALSE"
      fi
      
-     rm -rf ${pwd_str}/.tmp_state_check
+     rm -rf ${pwd_str}/.${Shellname}_tmp_state_check
      echo $res
      return 0
 }
@@ -326,8 +326,10 @@ function read_energy(){
 ###delete jobs
 function del_jobs(){
      if [ `checkfile ${pwd_str}/${tmp_ID}` = "TRUE" ];then
-        awk '{print $1}' ${pwd_str}/${tmp_ID} > ${pwd_str}/.tmpfile
-        for b in `cat ${pwd_str}/.tmpfile`
+     
+        awk '{print $1}' ${pwd_str}/${tmp_ID} > ${pwd_str}/.${Shellname}_tmpfile
+        
+        for b in `cat ${pwd_str}/.${Shellname}_tmpfile`
         do
            state=`qstat ${b} | tail -1 | awk '{print $5}'`
            if [ ${state}_state = "R_state" ] || [ ${state}_state = "Q_state" ]
@@ -335,10 +337,11 @@ function del_jobs(){
                qdel $b >/dev/null
            fi       
         done
+        rm -rf ${pwd_str}/.${Shellname}_tmpfile
      else
         return 1
      fi
-     rm -rf ${pwd_str}/.tmpfile
+     
 }
 ####submit job_1
 function submit_job_wait(){
@@ -392,15 +395,15 @@ function submit_job_wait(){
            energy=`read_single_energy ${current_job_path}`
            pre_file_name=`echo ${RUNNING_PATH} | sed 's/\//_/g'`
            
-           if [ -f ${pwd_str}/${pre_file_name}_energy.out ];then
-              grep ${current_job_path} ${pwd_str}/${pre_file_name}_energy.out >/dev/null
+           if [ -f ${pwd_str}/${PrefixShellname}_${pre_file_name}.energy ];then
+              grep ${current_job_path} ${pwd_str}/${PrefixShellname}_${pre_file_name}.energy >/dev/null
               if [ $? = 0 ];then
                  continue
               else
-                 echo "${current_job_path}       ${energy}" >> ${pwd_str}/${pre_file_name}_energy.out
+                 echo "${current_job_path}       ${energy}" >> ${pwd_str}/${PrefixShellname}_${pre_file_name}.energy
               fi
            else
-              echo "${current_job_path}       ${energy}" >> ${pwd_str}/${pre_file_name}_energy.out
+              echo "${current_job_path}       ${energy}" >> ${pwd_str}/${PrefixShellname}_${pre_file_name}.energy
            fi
            continue
         fi
@@ -440,7 +443,7 @@ function submit_job_wait(){
                             if [ `checkfile ${pwd_str}/${a}/${OPT_PATH}/${file_name}` = "TRUE" ];then         
                                cp -rf ${pwd_str}/${a}/${OPT_PATH}/${file_name}  ${pwd_str}/${a}/${RUNNING_PATH}/ 
                             else
-                               echo "The ${file_name} in ${pwd_str}/${a}/${OPT_PATH} and ${pwd_str}/${a}/${RUNNING_PATH}/ isnot exist! DOS calculation was suspended" >> bash.out
+                               echo "The ${file_name} in ${pwd_str}/${a}/${OPT_PATH} and ${pwd_str}/${a}/${RUNNING_PATH}/ isnot exist! DOS calculation was suspended" >> ${PrefixShellname}_bash.out
                                continue
                             fi        
                          fi
@@ -448,7 +451,7 @@ function submit_job_wait(){
                      if [ `checkfile ${pwd_str}/${a}/${OPT_PATH}/CONTCAR` = "TRUE" ];then             
                         cp -rf ${pwd_str}/${a}/${OPT_PATH}/CONTCAR  ${pwd_str}/${a}/${RUNNING_PATH}/POSCAR              
                      else
-                        echo "${pwd_str}/${a}/${OPT_PATH}/CONTCAR isnot exist! DOS calculation was suspended" >> bash.out
+                        echo "${pwd_str}/${a}/${OPT_PATH}/CONTCAR isnot exist! DOS calculation was suspended" >> ${PrefixShellname}_bash.out
                         continue
                      fi
                   else
@@ -534,15 +537,15 @@ function submit_job(){
            energy=`read_single_energy ${current_job_path}`
            pre_file_name=`echo ${RUNNING_PATH} | sed 's/\//_/g'`
            
-           if [ -f ${pwd_str}/${pre_file_name}_energy.out ];then
-              grep ${current_job_path} ${pwd_str}/${pre_file_name}_energy.out >/dev/null
+           if [ -f ${pwd_str}/${PrefixShellname}_${pre_file_name}.energy ];then
+              grep ${current_job_path} ${pwd_str}/${PrefixShellname}_${pre_file_name}.energy >/dev/null
               if [ $? = 0 ];then
                  continue
               else
-                 echo "${current_job_path}       ${energy}" >> ${pwd_str}/${pre_file_name}_energy.out
+                 echo "${current_job_path}       ${energy}" >> ${pwd_str}/${PrefixShellname}_${pre_file_name}.energy
               fi
            else
-              echo "${current_job_path}       ${energy}" >> ${pwd_str}/${pre_file_name}_energy.out
+              echo "${current_job_path}       ${energy}" >> ${pwd_str}/${PrefixShellname}_${pre_file_name}.energy
            fi
            continue
         fi
@@ -579,7 +582,7 @@ function submit_job(){
                     if [ `checkfile ${pwd_str}/${a}/${OPT_PATH}/${file_name}` = "TRUE" ];then        
                        cp -rf ${pwd_str}/${a}/${OPT_PATH}/${file_name}  ${pwd_str}/${a}/${RUNNING_PATH}/ 
                     else
-                       echo "The ${file_name} in ${pwd_str}/${a}/${OPT_PATH} and ${pwd_str}/${a}/${RUNNING_PATH}/ isnot exist! DOS calculation was suspended" >> bash.out
+                       echo "The ${file_name} in ${pwd_str}/${a}/${OPT_PATH} and ${pwd_str}/${a}/${RUNNING_PATH}/ isnot exist! DOS calculation was suspended" >> ${PrefixShellname}_bash.out
                        continue
                     fi        
                  fi
@@ -587,7 +590,7 @@ function submit_job(){
                if [ `checkfile ${pwd_str}/${a}/${OPT_PATH}/CONTCAR` = "TRUE" ];then             
                   cp -rf ${pwd_str}/${a}/${OPT_PATH}/CONTCAR  ${pwd_str}/${a}/${RUNNING_PATH}/POSCAR              
                else
-                  echo "${pwd_str}/${a}/${OPT_PATH}/CONTCAR isnot exist! DOS calculation was suspended" >> bash.out
+                  echo "${pwd_str}/${a}/${OPT_PATH}/CONTCAR isnot exist! DOS calculation was suspended" >> ${PrefixShellname}_bash.out
                   continue
                fi
                
@@ -808,7 +811,7 @@ function submit_dos(){
                     if [ `checkfile ${pwd_str}/${a}/${OPT_PATH}/${file_name}` = "TRUE" ];then         
                        cp -rf ${pwd_str}/${a}/${OPT_PATH}/${file_name}  ${pwd_str}/${a}/${RUNNING_PATH}/${DOS_SCF_PATH}/ 
                     else
-                       echo "The ${file_name} in ${pwd_str}/${a}/${OPT_PATH} and ${pwd_str}/${a}/${RUNNING_PATH}/${DOS_SCF_PATH} isnot exist! DOS calculation was suspended" >> bash.out
+                       echo "The ${file_name} in ${pwd_str}/${a}/${OPT_PATH} and ${pwd_str}/${a}/${RUNNING_PATH}/${DOS_SCF_PATH} isnot exist! DOS calculation was suspended" >> ${PrefixShellname}_bash.out
                        continue
                     fi        
                  fi
@@ -818,7 +821,7 @@ function submit_dos(){
                  cp ${pwd_str}/${a}/${OPT_PATH}/CONTCAR  ${pwd_str}/${a}/${RUNNING_PATH}/${DOS_SCF_PATH}/POSCAR
                  
               else
-                 echo "${pwd_str}/${a}/${OPT_PATH}/CONTCAR isnot exist! DOS calculation was suspended" >> bash.out
+                 echo "${pwd_str}/${a}/${OPT_PATH}/CONTCAR isnot exist! DOS calculation was suspended" >> ${PrefixShellname}_bash.out
                  continue
               fi
            else
@@ -859,16 +862,16 @@ if [ `checkIsRunningShell` = "TRUE" ];then
 fi
 
 
-rm -rf ${pwd_str}/bash.out
+rm -rf ${pwd_str}/${PrefixShellname}_bash.out
 rm -rf ${pwd_str}/${tmp_ID}
 ############INCAR modified part for scf calculation in DOS###############
-cat>dos_noscf_para.in<<EOF
+cat>${PrefixShellname}_dos_noscf_para.in<<EOF
 ISTART = 0
 LCHARG = T
 LWAVE = T
 EOF
 ############INCAR modified part for noscf calculation in DOS###############
-cat>dos_scf_para.in<<EOF
+cat>${PrefixShellname}_dos_scf_para.in<<EOF
 ISTART = 1
 ICHARG = 11
 NEDOS = 2000
@@ -876,14 +879,14 @@ ISMEAR = -5
 EOF
 
 ############INCAR modified part for charge###############
-cat>charge_para.in<<EOF
+cat>${PrefixShellname}_charge_para.in<<EOF
 NSW = 0
 LAECHG = T
 LCHARG = T
 EOF
 
 ############KPOINTS file for DOS SCF###############
-cat>dos_scf_kpoints.in<<EOF
+cat>${PrefixShellname}_dos_scf_kpoints.in<<EOF
 Automatic mesh
 0
 G
@@ -892,7 +895,7 @@ G
 EOF
 
 ############KPOINTS file for DOS NOSCF###############
-cat>dos_noscf_kpoints.in<<EOF
+cat>${PrefixShellname}_dos_noscf_kpoints.in<<EOF
 Automatic mesh
 0
 G
@@ -904,8 +907,8 @@ EOF
 RUNNING_KPOINTS_FILE=""
 
 ##########Set KPOINTS file for DOS
-DOS_SCF_KPOINTS_FILE="dos_scf_kpoints.in"
-DOS_NOSCF_KPOINTS_FILE="dos_noscf_kpoints.in"
+DOS_SCF_KPOINTS_FILE="${PrefixShellname}_dos_scf_kpoints.in"
+DOS_NOSCF_KPOINTS_FILE="${PrefixShellname}_dos_noscf_kpoints.in"
 
 ######## IS_Series_Running=T    Or   F
 IS_Series_Running=T
@@ -920,7 +923,7 @@ IS_RESTART_DOS_NOSCF=F
 
 #del_jobs
 
-DOS_NOSCF_INCAR_FILE="dos_noscf_para.in"
+DOS_NOSCF_INCAR_FILE="${PrefixShellname}_dos_noscf_para.in"
 
 while true
 do
@@ -929,11 +932,11 @@ do
   submit_job
 
   ###############echo "submit job do"
-  INCAR_PARA_FILE="dos_scf_para.in"
+  INCAR_PARA_FILE="${PrefixShellname}_dos_scf_para.in"
   RUNNING_PATH="N/dos"
   submit_dos
 
-  INCAR_PARA_FILE="charge_para.in"
+  INCAR_PARA_FILE="${PrefixShellname}_charge_para.in"
   RUNNING_PATH="N/bader"
   submit_job   
    
@@ -943,11 +946,11 @@ do
   sleep 60
 done
 
-echo "${taskindex} jobs are finished!" >> ${pwd_str}/bash.out
-echo "Corresponding data is presented as following:!" >> bash.out
+echo "${taskindex} jobs are finished!" >> ${pwd_str}/${PrefixShellname}_bash.out
+echo "Corresponding data is presented as following:!" >> ${PrefixShellname}_bash.out
 
 #####sort energy by ascending order
-for ene_file in `ls ${pwd_str}/*_energy.out`
+for ene_file in `ls ${pwd_str}/${PrefixShellname}_*.energy`
   do
      sort -t " " -k 2n ${pwd_str}/${ene_file} > ${pwd_str}/${ene_file}
   done

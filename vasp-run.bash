@@ -7,34 +7,41 @@
 
 #!/bin/bash
 
+######pbs file is required 
 pbs_file=vasp-sugon-new.pbs
-INCAR_PARA_FILE=""
 
-############# for normal submit
+############# for normal calculations
+INCAR_PARA_FILE=""
 #####   current path: /XXX/qqq/
 #####   sub_path="OPT"
 #####   sumit the all jobs in the OPT folder of all folers in current path
 RUNNING_PATH="OPT"
-
+RUNNING_KPOINTS_FILE=""
+############## T: restart even if this OUTCAR is completed;  F: donot excute when this OUTCAR is completed.
+IS_RESTART=F
 ####################Following keywords must be setted in the series_running 
 ######## IS_Series_Running=T    Or   F
-IS_Series_Running=F
+IS_Series_Running=T
 ########optimization folder
-OPT_PATH="OPT"
+OPT_PATH=""
 ##################
 
-############# for dos
+############# only effective for dos calculations
+IS_RESTART_DOS_SCF=F
+IS_RESTART_DOS_NOSCF=F
 DOS_SCF_PATH=1
 DOS_NOSCF_PATH=2
-INCAR_template=INCAR.in
+DOS_NOSCF_INCAR_FILE=""
+DOS_SCF_KPOINTS_FILE=""
+DOS_NOSCF_KPOINTS_FILE=""
 #############
 
-############## donot need to be modified
+############## Public variables are not needed to be modified
 machine_name=`uname -a | awk '{print $2}'`
 pwd_str=`pwd`
 VASP_FILES="INCAR KPOINTS POSCAR POTCAR"
 tmp_ID=".job_ID"
-taskindex=$[0]
+taskindex=0
 Shellname="$0"
 #############
 
@@ -60,26 +67,24 @@ function checkpath(){
         then
         err="TRUE"
      else
-        if [ x$2 = "xVASP" ];then 
-           echo " $1 file has no $file_name required by VASP calculations!" >> ${pwd_str}/ERROR
-        fi
         err="FALSE"
      fi
      echo $err
 }
-function check(){
+function checkVASPFiles(){
      cd ${pwd_str}
        ###rm -rf ${pwd_str}/ERROR
      err="TRUE"
      LScmd=""
      
-     str=${pwd_str}
+     
      if [ $# -eq 0 ]
      then
-        cd ${pwd_str}
-        LScmd="ls"
+        LScmd="ls ${pwd_str}"
+        str=${pwd_str}
      else
         LScmd="ls $1"
+        str=$1
      fi
      
      for a in `$LScmd`
@@ -94,7 +99,7 @@ function check(){
      
      if [ ${err} = "ERROR" ]
      then
-       cat ${pwd_str}/ERROR
+       cat ${pwd_str}/ERROR >> ${pwd_str}/bash.out
      fi
      echo $err
 }
@@ -241,6 +246,7 @@ function check_all_jobs_state(){
      echo $res
      return 0
 }
+
 ### read energy from OUTCAR
 function read_single_energy(){
    str=""
@@ -336,7 +342,7 @@ function del_jobs(){
 }
 ####submit job_1
 function submit_job_wait(){
-     
+ 
      LScmd=""
      str=${pwd_str}
      if [ $# -eq 0 ]
@@ -382,7 +388,20 @@ function submit_job_wait(){
                continue
            fi
         fi
-        if [ `check_isNormalFinish ${current_job_path}/OUTCAR` = "TRUE" ];then
+        if [ ${IS_RESTART}xx = "Fxx" ] && [ `check_isNormalFinish ${current_job_path}/OUTCAR` = "TRUE" ] ;then
+           energy=`read_single_energy ${current_job_path}`
+           pre_file_name=`echo ${RUNNING_PATH} | sed 's/\//_/g'`
+           
+           if [ -f ${pwd_str}/${pre_file_name}_energy.out ];then
+              grep ${current_job_path} ${pwd_str}/${pre_file_name}_energy.out >/dev/null
+              if [ $? = 0 ];then
+                 continue
+              else
+                 echo "${current_job_path}       ${energy}" >> ${pwd_str}/${pre_file_name}_energy.out
+              fi
+           else
+              echo "${current_job_path}       ${energy}" >> ${pwd_str}/${pre_file_name}_energy.out
+           fi
            continue
         fi
         
@@ -396,52 +415,66 @@ function submit_job_wait(){
                ##### submit         
                cp -rf ${pwd_str}/${pbs_file} ./
             
-            ##### according to INCAR_para.in file, revise INCAR file  
-            if [ `checkfile ${path_str}/INCAR_para.in` = "TRUE" ]
-            then
-              for cmdValue in `cat ${path_str}/INCAR_para.in`
-               do
-                 newkeyword=`echo ${cmdValue} | awk -F '=' '{print $1}'`
-                 row=`grep -n ${newkeyword}  ./INCAR | awk '{print $1}'| awk -F ':' '{print $1}'`
-                 if [ x${row} = "x" ]
-                 then
-                    sed -i '3a '${cmdValue}'' ./INCAR
-                 else
-                    sed -i ''${row}''c' '${cmdValue}'' ./INCAR 
-                 fi
-              done
-            fi
-            
-            run_bol="TRUE"
-            if [ ${IS_Series_Running}x = "Tx" ] || [ ${IS_Series_Running}x = "tx" ] && [ ${OPT_PATH} != ${RUNNING_PATH} ];then
-                if [ `check_isNormalFinish ${currpath}/${a}/${OPT_PATH}/OUTCAR` = "TRUE" ];then
-               
-                  if [ `checkfile ${currpath}/${a}/${OPT_PATH}/CONTCAR` = "TRUE" ];then
-                  
-                     cp ${currpath}/${a}/${OPT_PATH}/CONTCAR  ${currpath}/${a}/${RUNNING_PATH}/${DOS_SCF_PATH}/POSCAR
-                     
-                  else
-                     echo "${currpath}/${a}/${OPT_PATH}/CONTCAR isnot exist! DOS calculation was suspended" >> bash.out
-                     continue
-                  fi
-               else
-                  run_bol="FALSE"
-                  continue
-               fi 
-            fi
-            if [ ${run_bol} = "TRUE" ];
-            then
-               sed -i '1c #PBS -N '${a}'_'${RUNNING_PATH}'' ./${pbs_file} 
-               
-               res=`qsub ${pbs_file} | awk -F "." '{print $1}' `
-               
-               if [ ${RUNNING_PATH}null = "null" ];then
-                  echo "$res     ${str}/$a" >>${pwd_str}/${tmp_ID} 
-               else
-                  echo "$res     ${str}/$a/${RUNNING_PATH}" >>${pwd_str}/${tmp_ID}  
+               ##### according to INCAR_para.in file, revise INCAR file  
+               if [ `checkfile ${path_str}/${INCAR_PARA_FILE}` = "TRUE" ]
+               then
+                 for cmdValue in `cat ${path_str}/${INCAR_PARA_FILE}`
+                  do
+                    newkeyword=`echo ${cmdValue} | awk -F '=' '{print $1}'`
+                    row=`grep -n ${newkeyword}  ./INCAR | awk '{print $1}'| awk -F ':' '{print $1}'`
+                    if [ x${row} = "x" ]
+                    then
+                       sed -i '3a '${cmdValue}'' ./INCAR
+                    else
+                       sed -i ''${row}''c' '${cmdValue}'' ./INCAR 
+                    fi
+                 done
                fi
-               taskindex=$[$taskindex + 1]
-               break 
+               
+               run_bol="TRUE"
+               if [ ${IS_Series_Running}x = "Tx" ] || [ ${IS_Series_Running}x = "tx" ] && [ ${OPT_PATH} != ${RUNNING_PATH} ];then
+                   if [ `check_isNormalFinish ${pwd_str}/${a}/${OPT_PATH}/OUTCAR` = "TRUE" ];then
+                      for file_name in ${VASP_FILES}
+                       do
+                         if [ `checkfile ${pwd_str}/${a}/${RUNNING_PATH}/${file_name}` = "FALSE" ];then  
+                            if [ `checkfile ${pwd_str}/${a}/${OPT_PATH}/${file_name}` = "TRUE" ];then         
+                               cp -rf ${pwd_str}/${a}/${OPT_PATH}/${file_name}  ${pwd_str}/${a}/${RUNNING_PATH}/ 
+                            else
+                               echo "The ${file_name} in ${pwd_str}/${a}/${OPT_PATH} and ${pwd_str}/${a}/${RUNNING_PATH}/ isnot exist! DOS calculation was suspended" >> bash.out
+                               continue
+                            fi        
+                         fi
+                       done
+                     if [ `checkfile ${pwd_str}/${a}/${OPT_PATH}/CONTCAR` = "TRUE" ];then             
+                        cp -rf ${pwd_str}/${a}/${OPT_PATH}/CONTCAR  ${pwd_str}/${a}/${RUNNING_PATH}/POSCAR              
+                     else
+                        echo "${pwd_str}/${a}/${OPT_PATH}/CONTCAR isnot exist! DOS calculation was suspended" >> bash.out
+                        continue
+                     fi
+                  else
+                     run_bol="FALSE"
+                     continue
+                  fi 
+               fi
+               
+               if [ `checkfile ${pwd_str}/${RUNNING_KPOINTS_FILE}` = "TRUE" ];then
+                  cp -rf ${pwd_str}/${RUNNING_KPOINTS_FILE} ${pwd_str}/${a}/${RUNNING_PATH}/KPOINTS
+               fi
+               
+               if [ ${run_bol} = "TRUE" ];
+               then
+                  cp -rf ${pwd_str}/${pbs_file} ${pwd_str}/${a}/${RUNNING_PATH}/
+                  sed -i '1c #PBS -N '${a}'_'${RUNNING_PATH}'' ${pwd_str}/${a}/${RUNNING_PATH}/${pbs_file}  
+                  
+                  res=`qsub ${pbs_file} | awk -F "." '{print $1}' `
+                  
+                  if [ ${RUNNING_PATH}null = "null" ];then
+                     echo "$res     ${str}/$a" >>${pwd_str}/${tmp_ID} 
+                  else
+                     echo "$res     ${str}/$a/${RUNNING_PATH}" >>${pwd_str}/${tmp_ID}  
+                  fi
+                  taskindex=$[$taskindex + 1]
+                  break 
                fi
             fi 
         done 
@@ -497,11 +530,21 @@ function submit_job(){
                continue
            fi
         fi
-        if [ `check_isNormalFinish ${current_job_path}/OUTCAR` = "TRUE" ];then
+        if [ ${IS_RESTART}xx = "Fxx" ] && [ `check_isNormalFinish ${current_job_path}/OUTCAR` = "TRUE" ] ;then
            energy=`read_single_energy ${current_job_path}`
-           echo "${current_job_path}       ${energy}" >> ${pwd_str}/${RUNNING_PATH}_energy.out
-           continue
+           pre_file_name=`echo ${RUNNING_PATH} | sed 's/\//_/g'`
            
+           if [ -f ${pwd_str}/${pre_file_name}_energy.out ];then
+              grep ${current_job_path} ${pwd_str}/${pre_file_name}_energy.out >/dev/null
+              if [ $? = 0 ];then
+                 continue
+              else
+                 echo "${current_job_path}       ${energy}" >> ${pwd_str}/${pre_file_name}_energy.out
+              fi
+           else
+              echo "${current_job_path}       ${energy}" >> ${pwd_str}/${pre_file_name}_energy.out
+           fi
+           continue
         fi
         
         ##### submit       
@@ -510,7 +553,7 @@ function submit_job(){
         if [ `checkfile ${path_str}/${INCAR_PARA_FILE}` = "TRUE" ]
          then
            numi=0
-           for cmdValue in `cat ${path_str}/INCAR_para.in`
+           for cmdValue in `cat ${path_str}/${INCAR_PARA_FILE}`
             do
                newkeyword=`echo ${cmdValue} | awk -F '=' '{print $1}'`
                row=`grep -n ${newkeyword}  ./INCAR | awk '{print $1}'| awk -F ':' '{print $1}'`
@@ -524,31 +567,46 @@ function submit_job(){
             done
          fi
         
-       #  echo "submit job 1 runbol"
+       #echo "submit job 1 runbol"
        
          run_bol="TRUE"
          if [ ${IS_Series_Running}_o = "T_o" ] || [ ${IS_Series_Running}_o = "t_o" ] && [ ${OPT_PATH} != ${RUNNING_PATH} ];then
-             if [ `check_isNormalFinish ${currpath}/${a}/${OPT_PATH}/OUTCAR` = "TRUE" ];then
-               
-               if [ `checkfile ${currpath}/${a}/${OPT_PATH}/CONTCAR` = "TRUE" ];then
-               
-                  cp ${currpath}/${a}/${OPT_PATH}/CONTCAR  ${currpath}/${a}/${RUNNING_PATH}/${DOS_SCF_PATH}/POSCAR
-                  
+             if [ `check_isNormalFinish ${pwd_str}/${a}/${OPT_PATH}/OUTCAR` = "TRUE" ];then
+              
+               for file_name in ${VASP_FILES}
+               do
+                 if [ `checkfile ${pwd_str}/${a}/${RUNNING_PATH}/${file_name}` = "FALSE" ];then  
+                    if [ `checkfile ${pwd_str}/${a}/${OPT_PATH}/${file_name}` = "TRUE" ];then        
+                       cp -rf ${pwd_str}/${a}/${OPT_PATH}/${file_name}  ${pwd_str}/${a}/${RUNNING_PATH}/ 
+                    else
+                       echo "The ${file_name} in ${pwd_str}/${a}/${OPT_PATH} and ${pwd_str}/${a}/${RUNNING_PATH}/ isnot exist! DOS calculation was suspended" >> bash.out
+                       continue
+                    fi        
+                 fi
+               done
+               if [ `checkfile ${pwd_str}/${a}/${OPT_PATH}/CONTCAR` = "TRUE" ];then             
+                  cp -rf ${pwd_str}/${a}/${OPT_PATH}/CONTCAR  ${pwd_str}/${a}/${RUNNING_PATH}/POSCAR              
                else
-                  echo "${currpath}/${a}/${OPT_PATH}/CONTCAR isnot exist! DOS calculation was suspended" >> bash.out
+                  echo "${pwd_str}/${a}/${OPT_PATH}/CONTCAR isnot exist! DOS calculation was suspended" >> bash.out
                   continue
                fi
+               
             else
                run_bol="FALSE"
                continue
             fi 
 
          fi
-
+         
+         if [ `checkfile ${pwd_str}/${RUNNING_KPOINTS_FILE}` = "TRUE" ];then
+            cp -rf ${pwd_str}/${RUNNING_KPOINTS_FILE} ${pwd_str}/${a}/${RUNNING_PATH}/KPOINTS
+         fi
+         
          if [ ${run_bol} = "TRUE" ];
             then
-            sed -i '1c #PBS -N '${a}'_'${RUNNING_PATH}'' ./${pbs_file}
-            
+            cp -rf ${pwd_str}/${pbs_file} ${pwd_str}/${a}/${RUNNING_PATH}/
+            sed -i '1c #PBS -N '${a}'_'${RUNNING_PATH}'' ${pwd_str}/${a}/${RUNNING_PATH}/${pbs_file} 
+              
             res=`qsub ${pbs_file} | awk -F "." '{print $1}' `
             if [ ${RUNNING_PATH}null = "null" ];then
                  echo "$res     ${str}/$a" >>${pwd_str}/${tmp_ID} 
@@ -579,61 +637,50 @@ function submit_dos_scf(){
             i=$[$i + 1]
       done 
       
-     if [ -d ${path_str} ];then
+     if [ -d ${path_str}/${DOS_SCF_PATH} ];then
        cd ./
      else
-       echo "${path_str} is not exist"
+       echo "${path_str}/${DOS_SCF_PATH} is not exist"
        exit 1
      fi
      
+     
      cd ${path_str}/${DOS_SCF_PATH}
      
-     if [ `checkfile ${path_str}/${DOS_SCF_PATH}/OUTCAR` = "TRUE" ];then
-       grep "General timing and accounting informations" ./OUTCAR >/dev/null
-       if [ $? -eq 0 ] 
-       then
+     if [ ${IS_RESTART_DOS_SCF}xx = "Fxx" ] && [ `check_isNormalFinish ${path_str}/${DOS_SCF_PATH}/OUTCAR` = "TRUE" ] ;then
         return 0
-       fi
      fi
-     
-     if [ -f ./INCAR ];then
-       cd ./
-     else
-       if [ -f ./${INCAR_template} ]
-       then
-          incar_temp_path=${INCAR_template}
-       else
-          incar_temp_path=${pwd_str}/${INCAR_template}
-          if [ -f ${incar_temp_path} ]
-          then   
-             cd ./
-          else
-             echo "template file of INCAR is not exit"
-             return 1
-          fi
-       fi 
-       sed -e "s/EXTERNAL_ISTART/0/g"   \
-           -e "s/EXTERNAL_ICHARG/1/g"   \
-           -e "s/EXTERNAL_NEDOS/305/g"  \
-           -e "s/EXTERNAL_ISMEAR/0/g"   \
-           ${incar_temp_path} > ./INCAR 
+       
+     if [ `checkfile ${path_str}/${INCAR_PARA_FILE}` = "TRUE" ];then
+           numi=0
+           for cmdValue in `cat ${path_str}/${INCAR_PARA_FILE}`
+            do
+               newkeyword=`echo ${cmdValue} | awk -F '=' '{print $1}'`
+               row=`grep -n ${newkeyword}  ./INCAR | awk '{print $1}'| awk -F ':' '{print $1}'`
+               numi=$[ $numi + 2 ]
+               if [ x${row} = "x" ]
+               then
+                  sed -i ''${numi}''a' '${cmdValue}'' ./INCAR
+               else
+                  sed -i ''${row}''c' '${cmdValue}''  ./INCAR 
+               fi
+            done
+     fi 
+     ##### submit 
+     if [ `checkfile ${pwd_str}/${DOS_SCF_KPOINTS_FILE}` = "TRUE" ];then
+            cp -rf ${pwd_str}/${DOS_SCF_KPOINTS_FILE} ${path_str}/${DOS_SCF_PATH}/KPOINTS
      fi
-     
-   
-     if [ `check ${path_str}/${DOS_SCF_PATH}` = "ERROR" ]
-     then
+     ####
+     if [ `checkVASPFiles ${path_str}/${DOS_SCF_PATH}` = "ERROR" ];then
          echo " ${path_str} folder has no files required by VASP calculations!" >> ${pwd_str}/ERROR
          return 1
      fi
-  
-     ##### submit         
+     #### modified pbs file        
      cp -rf ${pwd_str}/${pbs_file} ./
-
-     
      na=`echo $1 | awk -F '/' '{print $NF}'`
-
      sed -i '1c #PBS -N '${na}'_'${DOS_SCF_PATH}'' ./${pbs_file} 
      
+     ####submit
      res=`qsub ${pbs_file} | awk -F "." '{print $1}' `
      
      echo "$res   ${path_str}/${DOS_SCF_PATH}  " >> ${pwd_str}/${tmp_ID} 
@@ -658,26 +705,22 @@ function submit_dos_noscf(){
 
 ###  echo "dos_noscf: $1  $2  "
 
+     if [ -d ${path_str}/${DOS_NOSCF_PATH}  ];then
+       cd ./
+     else
+       echo "${path_str}/${DOS_NOSCF_PATH} is not exist"
+       exit 1
+     fi
      cd ${path_str}/${DOS_NOSCF_PATH}  
 
-     if [ `checkfile ${path_str}/${DOS_NOSCF_PATH}/OUTCAR` = "TRUE" ];then
-       grep "General timing and accounting informations" ./OUTCAR >/dev/null
-       if [ $? -eq 0 ] 
-       then
+     if [ ${IS_RESTART_DOS_SCF}xx = "Fxx" ] && [ `check_isNormalFinish ${path_str}/${DOS_NOSCF_PATH}/OUTCAR` = "TRUE" ] ;then
         return 0
-       else
-        return 0
-       fi
      fi
      
-     if [ `checkfile ${path_str}/${DOS_SCF_PATH}/OUTCAR` = "TRUE" ];then
-     
-        grep "General timing and accounting informations" ${path_str}/${DOS_SCF_PATH}/OUTCAR  >/dev/null
-        
-        if [ $? -eq 0 ];then
+     if [ `check_isNormalFinish ${path_str}/${DOS_SCF_PATH}/OUTCAR` = "TRUE" ];then
         
             cp -rf ${path_str}/${DOS_SCF_PATH}/WAVECAR ./
-            cp -rf ${path_str}/${DOS_SCF_PATH}/CHGCAR ./
+            cp -rf ${path_str}/${DOS_SCF_PATH}/CHGCAR  ./
             
             if [ `checkfile ${path_str}/${DOS_NOSCF_PATH}/POSCAR` = "FALSE" ];then
                cp -rf ${path_str}/${DOS_SCF_PATH}/POSCAR ./
@@ -692,10 +735,10 @@ function submit_dos_noscf(){
                cp -rf ${path_str}/${DOS_SCF_PATH}/INCAR ./
             fi
             
-            if [ `checkfile ${path_str}/${INCAR_PARA_FILE}` = "TRUE" ]
+            if [ `checkfile ${path_str}/${DOS_NOSCF_INCAR_FILE}` = "TRUE" ]
             then
               numi=0
-              for cmdValue in `cat ${path_str}/INCAR_para.in`
+              for cmdValue in `cat ${path_str}/${DOS_NOSCF_INCAR_FILE}`
                do
                   newkeyword=`echo ${cmdValue} | awk -F '=' '{print $1}'`
                   row=`grep -n ${newkeyword}  ./INCAR | awk '{print $1}'| awk -F ':' '{print $1}'`
@@ -708,19 +751,19 @@ function submit_dos_noscf(){
                   fi
                done
             fi 
-        else
-           return 1
-        fi
      else
         return 1
      fi
+       
+     if [ `checkfile ${pwd_str}/${DOS_NOSCF_KPOINTS_FILE}` = "TRUE" ];then
+        cp -rf ${pwd_str}/${DOS_NOSCF_KPOINTS_FILE} ${path_str}/${DOS_NOSCF_PATH}/KPOINTS
+     fi
      
-     if [ `checkfile ${path_str}/${DOS_NOSCF_PATH}` = "ERROR" ]
+     if [ `checkVASPFiles ${path_str}/${DOS_NOSCF_PATH}` = "ERROR" ]
      then
          echo " ${path_str} folder has no files required by VASP calculations!" >> ${pwd_str}/ERROR
          exit 1
      fi
-  
      ##### submit         
      cp -rf ${pwd_str}/${pbs_file} ./
      ###echo "pre=$1"
@@ -757,14 +800,25 @@ function submit_dos(){
      do
         run_bol="TRUE"
         if [ ${IS_Series_Running}xo = "Txo" ] || [ ${IS_Series_Running}xo = "txo" ] ;then
-           if [ `check_isNormalFinish ${currpath}/${a}/${OPT_PATH}/OUTCAR` = "TRUE" ];then
-           
-              if [ `checkfile ${currpath}/${a}/${OPT_PATH}/CONTCAR` = "TRUE" ];then
+           if [ `check_isNormalFinish ${pwd_str}/${a}/${OPT_PATH}/OUTCAR` = "TRUE" ];then
               
-                 cp ${currpath}/${a}/${OPT_PATH}/CONTCAR  ${currpath}/${a}/${RUNNING_PATH}/${DOS_SCF_PATH}/POSCAR
+               for file_name in ${VASP_FILES}
+                do
+                 if [ `checkfile ${pwd_str}/${a}/${RUNNING_PATH}/${file_name}` = "FALSE" ];then  
+                    if [ `checkfile ${pwd_str}/${a}/${OPT_PATH}/${file_name}` = "TRUE" ];then         
+                       cp -rf ${pwd_str}/${a}/${OPT_PATH}/${file_name}  ${pwd_str}/${a}/${RUNNING_PATH}/${DOS_SCF_PATH}/ 
+                    else
+                       echo "The ${file_name} in ${pwd_str}/${a}/${OPT_PATH} and ${pwd_str}/${a}/${RUNNING_PATH}/${DOS_SCF_PATH} isnot exist! DOS calculation was suspended" >> bash.out
+                       continue
+                    fi        
+                 fi
+                done
+              if [ `checkfile ${pwd_str}/${a}/${OPT_PATH}/CONTCAR` = "TRUE" ];then
+              
+                 cp ${pwd_str}/${a}/${OPT_PATH}/CONTCAR  ${pwd_str}/${a}/${RUNNING_PATH}/${DOS_SCF_PATH}/POSCAR
                  
               else
-                 echo "${currpath}/${a}/${OPT_PATH}/CONTCAR isnot exist! DOS calculation was suspended" >> bash.out
+                 echo "${pwd_str}/${a}/${OPT_PATH}/CONTCAR isnot exist! DOS calculation was suspended" >> bash.out
                  continue
               fi
            else
@@ -772,38 +826,21 @@ function submit_dos(){
               continue
            fi 
         fi
-        if [ -d ${currpath}/$a ] && [ ${run_bol} = "TRUE" ]
+        if [ -d ${pwd_str}/$a ] && [ ${run_bol} = "TRUE" ]
         then   
-          res=`checkfile ${pwd_str}/${tmp_ID}`
-          if [ ${res} = "FALSE" ];then
-             cd $currpath/$a
-             str=`pwd`  
-                 
-             submit_dos_scf   $str  ${RUNNING_PATH}
-             submit_dos_noscf $str  ${RUNNING_PATH}
-             cd $currpath
-          else         
-            grep "${a}/DOS/${DOS_SCF_PATH}" ${pwd_str}/${tmp_ID} >/dev/null      
-            if [ $? -ne 0 ]
-            then
-              cd $currpath/$a      
-              str=`pwd`
-              
-              submit_dos_scf $str  ${RUNNING_PATH}
-              cd $currpath
-            fi
-            
-            ###echo "${a}_DOS_${DOS_NOSCF_PATH}" 
-            grep "${a}/DOS/${DOS_NOSCF_PATH}" ${pwd_str}/${tmp_ID}  >/dev/null
-            if [ $? -ne 0 ]
-            then
-              cd $currpath/$a
-              str=`pwd`
-              
-              submit_dos_noscf $str ${RUNNING_PATH}
-              cd $currpath
-            fi
-          fi         
+          current_job_path=${pwd_str}/${a}/${RUNNING_PATH}/${DOS_SCF_PATH}     
+          if [ `checkIsRecordedJob ${current_job_path}`x = "FALSEx" ];then
+             if [ `checkIsRunningJob ${current_job_path} RECORD`x = "FALSEx" ];then                    
+                submit_dos_scf   ${pwd_str}/${a}  ${RUNNING_PATH}
+             fi          
+          fi
+          
+          current_job_path=${pwd_str}/${a}/${RUNNING_PATH}/${DOS_NOSCF_PATH}     
+          if [ `checkIsRecordedJob ${current_job_path}`x = "FALSEx" ];then
+            if [ `checkIsRunningJob ${current_job_path} RECORD`x = "FALSEx" ];then                     
+                submit_dos_noscf ${pwd_str}/${a}  ${RUNNING_PATH}          
+            fi 
+          fi        
         fi    
      done
 }
@@ -824,25 +861,66 @@ fi
 
 rm -rf ${pwd_str}/bash.out
 rm -rf ${pwd_str}/${tmp_ID}
-
-cat>dos_para.in<<EOF
+############INCAR modified part for scf calculation in DOS###############
+cat>dos_noscf_para.in<<EOF
+ISTART = 0
+LCHARG = T
+LWAVE = T
+EOF
+############INCAR modified part for noscf calculation in DOS###############
+cat>dos_scf_para.in<<EOF
 ISTART = 1
 ICHARG = 11
 NEDOS = 2000
 ISMEAR = -5
 EOF
 
+############INCAR modified part for charge###############
 cat>charge_para.in<<EOF
 NSW = 0
 LAECHG = T
 LCHARG = T
 EOF
 
-#######del_jobs
-##########
+############KPOINTS file for DOS SCF###############
+cat>dos_scf_kpoints.in<<EOF
+Automatic mesh
+0
+G
+6  6  1
+0. 0. 0.
+EOF
 
+############KPOINTS file for DOS NOSCF###############
+cat>dos_noscf_kpoints.in<<EOF
+Automatic mesh
+0
+G
+6  6  1
+0. 0. 0.
+EOF
+
+#######Set KPOINTS file for other calculations
+RUNNING_KPOINTS_FILE=""
+
+##########Set KPOINTS file for DOS
+DOS_SCF_KPOINTS_FILE="dos_scf_kpoints.in"
+DOS_NOSCF_KPOINTS_FILE="dos_noscf_kpoints.in"
+
+######## IS_Series_Running=T    Or   F
 IS_Series_Running=T
+########optimization folder
 OPT_PATH="N/OPT"
+
+################## bool value for restart calculation
+IS_RESTART=F
+IS_RESTART_DOS_SCF=F
+IS_RESTART_DOS_NOSCF=F
+################
+
+#del_jobs
+
+DOS_NOSCF_INCAR_FILE="dos_noscf_para.in"
 
 while true
 do
@@ -851,7 +929,7 @@ do
   submit_job
 
   ###############echo "submit job do"
-  INCAR_PARA_FILE="dos_para.in"
+  INCAR_PARA_FILE="dos_scf_para.in"
   RUNNING_PATH="N/dos"
   submit_dos
 
@@ -862,9 +940,15 @@ do
   if [ "`check_all_jobs_state`x" = "TRUEx" ];then
     break
   fi
-  sleep 120
+  sleep 60
 done
 
 echo "${taskindex} jobs are finished!" >> ${pwd_str}/bash.out
 echo "Corresponding data is presented as following:!" >> bash.out
-sort -t " " -k 3n ${pwd_str}/${tmp_ID} >> ${pwd_str}/bash.out
+
+#####sort energy by ascending order
+for ene_file in `ls ${pwd_str}/*_energy.out`
+  do
+     sort -t " " -k 2n ${pwd_str}/${ene_file} > ${pwd_str}/${ene_file}
+  done
+

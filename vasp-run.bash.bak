@@ -618,6 +618,7 @@ function submit_job(){
             cp -rf ${pwd_str}/${RUNNING_KPOINTS_FILE} ${pwd_str}/${a}/${RUNNING_PATH}/KPOINTS
          fi
          
+          
          if [ `checkfile ${pwd_str}/${INCAR_PARA_FILE}` = "TRUE" ]
          then
            numi=0

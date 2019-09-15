@@ -703,7 +703,7 @@ function submit_dos_scf(){
      ####submit
      res=`qsub ${pbs_file} | awk -F "." '{print $1}' `
      
-     echo "$res   ${path_str}/${DOS_SCF_PATH}  " >> ${pwd_str}/${tmp_ID} 
+     echo "$res   ${path_str}/${DOS_SCF_PATH}" >> ${pwd_str}/${tmp_ID} 
         
      taskindex=$[ ${taskindex} + 1 ]
 }
@@ -792,7 +792,7 @@ function submit_dos_noscf(){
 
      
      res=`qsub ${pbs_file} | awk -F "." '{print $1}' `
-     echo "$res     ${path_str}/${DOS_NOSCF_PATH}     Q" >> ${pwd_str}/${tmp_ID}
+     echo "$res     ${path_str}/${DOS_NOSCF_PATH}" >> ${pwd_str}/${tmp_ID}
  
      taskindex=$[ ${taskindex} + 1 ]
 }
@@ -867,7 +867,7 @@ function submit_dos(){
            run_bol="TRUE"
            
            if [ ${IS_Series_Running}xo = "Txo" ] || [ ${IS_Series_Running}xo = "txo" ] ;then
-              if [ `check_isNormalFinish ${pwd_str}/${a}/${OPT_PATH}/OUTCAR` = "TRUE" ];then
+               if [ `check_isNormalFinish ${pwd_str}/${a}/${OPT_PATH}/OUTCAR` = "TRUE" ];then
                  
                   for file_name in ${VASP_FILES}
                    do

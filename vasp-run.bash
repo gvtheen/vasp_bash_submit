@@ -44,6 +44,7 @@ taskindex=0
 Shellname="$0"
 PrefixShellname=`echo ${Shellname} | awk -F '.' '{print $1}'`
 tmp_ID=".${PrefixShellname}_job_ID"
+Is_Waiting_Mode=F
 #############
 
 #############
@@ -287,66 +288,46 @@ function read_single_energy(){
 }
 ############read energy 
 function read_energy(){
-     if [ x$1 = "x" ]
-     then
-       cd ${pwd_str}
-     
-       for a in `ls`
+     if [ x$1 = "x" ];then
+       cd ${pwd_str} 
+       for a in `ls ./`
         do
          if [ -d $a ];then
-           cd ./$a
-           if [ -f ${pwd_str}/$1/OUTCAR ];then
-              grep "General timing and accounting informations" ${pwd_str}/$1/OUTCAR >/dev/null
-              if [ $? -eq 0 ] 
-              then
-                 energy=`grep " energy(sigma->0)" ${pwd_str}/$a/OUTCAR | tail -1 | awk '{print $7}'`
-                 echo "$1    ${energy}" >>${pwd_str}/energy_out
-              else
-                 echo "$1    ERROR_OUTPUT" >>${pwd_str}/energy_out
-              fi
-           else
-                 echo "$1    ERROR_OUTPUT" >>${pwd_str}/energy_out
-           fi
+            energy=`read_single_energy ${pwd_str}/${RUNNING_PATH}/$a`
+            echo "${pwd_str}/${RUNNING_PATH}/$a    ${energy}" >>${pwd_str}/energy_out
          fi
-       done
-     else  
-       grep "General timing and accounting informations" ${pwd_str}/$1/OUTCAR >/dev/null
-       if [ $? -eq 0 ] 
-       then
-         energy=`grep " energy(sigma->0)" ${pwd_str}/${1}/OUTCAR | tail -1 | awk '{print $7}'`
-         
-         row=`grep -n "$1"  ${pwd_str}/energy_out | awk '{print $1}'`
-         if [ ${row}x = "x" ];then
-            echo "$1    ${energy}" >>${pwd_str}/energy_out
-         else
-            res1="$1    ${energy}"
-            sed -i ''${row}''c' '${1}' '${energy}'' ${pwd_str}/energy_out
-
-         fi
-       else
-         echo "$1    ERROR_OUTPUT" >>${pwd_str}/energy_out
-       fi
+       done  
      fi
 }
 ###delete jobs
 function del_jobs(){
-     if [ `checkfile ${pwd_str}/${tmp_ID}` = "TRUE" ];then
      
-        awk '{print $1}' ${pwd_str}/${tmp_ID} > ${pwd_str}/.${Shellname}_tmpfile
-        
-        for b in `cat ${pwd_str}/.${Shellname}_tmpfile`
-        do
-           state=`qstat ${b} | tail -1 | awk '{print $5}'`
-           if [ ${state}_state = "R_state" ] || [ ${state}_state = "Q_state" ]
-           then
-               qdel $b >/dev/null
-           fi       
-        done
-        rm -rf ${pwd_str}/.${Shellname}_tmpfile
+     if [ `checkfile ${pwd_str}/${tmp_ID}` = "TRUE" ];then
+        if [ x_$1 = "x_" ];then 
+           awk '{print $1}' ${pwd_str}/${tmp_ID} > ${pwd_str}/.${Shellname}_tmpfile     
+        else
+           label="${pwd_str}/$1"
+           grep "${label}" ${pwd_str}/${tmp_ID} | awk '{print $1}'  > ${pwd_str}/.${Shellname}_tmpfile 
+        fi
+       for b in `cat ${pwd_str}/.${Shellname}_tmpfile`
+       do
+          state=`qstat ${b} | tail -1 | awk '{print $5}'`
+          if [ ${state}_state = "R_state" ] || [ ${state}_state = "Q_state" ]
+          then
+              qdel $b >/dev/null
+          fi       
+       done
+       rm -rf ${pwd_str}/.${Shellname}_tmpfile
      else
         return 1
      fi
      
+}
+function del_files(){
+    for s in "$@"
+    do
+      rm -rf ${pwd_str}/s
+    done
 }
 ####submit job_1
 function submit_job_wait(){
@@ -371,6 +352,8 @@ function submit_job_wait(){
         fi
      fi
      
+     Is_Waiting_Mode=T
+     
      for a in `$LScmd`
      do
       if [ -d ${str}/$a ];then
@@ -388,14 +371,6 @@ function submit_job_wait(){
         #### check whether the job will be run
         current_job_path=`pwd`
         
-        if [ `checkIsRecordedJob ${current_job_path}`x = "TRUEx" ];then
-           continue
-        else
-           ##echo "checkIsRunningJob in ${current_job_path}"
-           if [ `checkIsRunningJob ${current_job_path} RECORD`x = "TRUEx" ];then          
-               continue
-           fi
-        fi
         if [ ${IS_RESTART}xx = "Fxx" ] && [ `check_isNormalFinish ${current_job_path}/OUTCAR` = "TRUE" ] ;then
            energy=`read_single_energy ${current_job_path}`
            pre_file_name=`echo ${RUNNING_PATH} | sed 's/\//_/g'`
@@ -411,6 +386,15 @@ function submit_job_wait(){
               echo "${current_job_path}       ${energy}" >> ${pwd_str}/${PrefixShellname}_${pre_file_name}.energy
            fi
            continue
+        fi
+        
+        if [ `checkIsRecordedJob ${current_job_path}`x = "TRUEx" ];then
+           continue
+        else
+           ##echo "checkIsRunningJob in ${current_job_path}"
+           if [ `checkIsRunningJob ${current_job_path} RECORD`x = "TRUEx" ];then          
+               continue
+           fi
         fi
         
         while true
@@ -484,7 +468,7 @@ function submit_job_wait(){
                   else
                      echo "$res     ${str}/$a/${RUNNING_PATH}" >>${pwd_str}/${tmp_ID}  
                   fi
-                  taskindex=$[$taskindex + 1]
+                  taskindex=$[ ${taskindex} + 1 ]
                   break 
                fi
             fi 
@@ -556,17 +540,10 @@ function submit_job(){
 
         #### check whether the job will be run
         current_job_path=`pwd`     
-        if [ `checkIsRecordedJob ${current_job_path}`x = "TRUEx" ];then
-           continue
-        else
-           if [ `checkIsRunningJob ${current_job_path} RECORD`x = "TRUEx" ];then          
-               continue
-           fi
-        fi
+
         if [ ${IS_RESTART}xx = "Fxx" ] && [ `check_isNormalFinish ${current_job_path}/OUTCAR` = "TRUE" ] ;then
            energy=`read_single_energy ${current_job_path}`
-           pre_file_name=`echo ${RUNNING_PATH} | sed 's/\//_/g'`
-           
+           pre_file_name=`echo ${RUNNING_PATH} | sed 's/\//_/g'`     
            if [ -f ${pwd_str}/${PrefixShellname}_${pre_file_name}.energy ];then
               grep ${current_job_path} ${pwd_str}/${PrefixShellname}_${pre_file_name}.energy >/dev/null
               if [ $? = 0 ];then
@@ -575,15 +552,20 @@ function submit_job(){
                  echo "${current_job_path}       ${energy}" >> ${pwd_str}/${PrefixShellname}_${pre_file_name}.energy
               fi
            else
-              echo "${current_job_path}       ${energy}" >> ${pwd_str}/${PrefixShellname}_${pre_file_name}.energy
+                 echo "${current_job_path}       ${energy}" >> ${pwd_str}/${PrefixShellname}_${pre_file_name}.energy
            fi
            continue
         fi
         
+        if [ `checkIsRecordedJob ${current_job_path}`x = "TRUEx" ];then
+           continue
+        else
+           if [ `checkIsRunningJob ${current_job_path} RECORD`x = "TRUEx" ];then          
+               continue
+           fi
+        fi
         ##### submit       
         cp -rf ${pwd_str}/${pbs_file} ./
-        
-       #echo "submit job 1 runbol"
        
          run_bol="TRUE"
          if [ ${IS_Series_Running}_o = "T_o" ] || [ ${IS_Series_Running}_o = "t_o" ] && [ ${OPT_PATH} != ${RUNNING_PATH} ];then
@@ -650,7 +632,7 @@ function submit_job(){
             else
                  echo "$res     ${str}/$a/${RUNNING_PATH}" >>${pwd_str}/${tmp_ID} 
             fi
-            taskindex=$[$taskindex + 1]
+            taskindex=$[ ${taskindex} + 1 ]
             cd  ${str}
          fi
       fi    
@@ -683,10 +665,6 @@ function submit_dos_scf(){
      
      
      cd ${path_str}/${DOS_SCF_PATH}
-     
-     if [ ${IS_RESTART_DOS_SCF}xx = "Fxx" ] && [ `check_isNormalFinish ${path_str}/${DOS_SCF_PATH}/OUTCAR` = "TRUE" ] ;then
-        return 0
-     fi
        
      ##### submit 
      if [ `checkfile ${pwd_str}/${DOS_SCF_KPOINTS_FILE}` = "TRUE" ];then
@@ -727,7 +705,7 @@ function submit_dos_scf(){
      
      echo "$res   ${path_str}/${DOS_SCF_PATH}  " >> ${pwd_str}/${tmp_ID} 
         
-     taskindex=$[$taskindex + 1]
+     taskindex=$[ ${taskindex} + 1 ]
 }
 
 function submit_dos_noscf(){
@@ -745,8 +723,6 @@ function submit_dos_noscf(){
             i=$[$i + 1]
       done  
 
-###  echo "dos_noscf: $1  $2  "
-
      if [ -d ${path_str}/${DOS_NOSCF_PATH}  ];then
        cd ./
      else
@@ -754,10 +730,6 @@ function submit_dos_noscf(){
        return 1
      fi
      cd ${path_str}/${DOS_NOSCF_PATH}  
-
-     if [ ${IS_RESTART_DOS_SCF}xx = "Fxx" ] && [ `check_isNormalFinish ${path_str}/${DOS_NOSCF_PATH}/OUTCAR` = "TRUE" ] ;then
-        return 0
-     fi
      
      if [ `check_isNormalFinish ${path_str}/${DOS_SCF_PATH}/OUTCAR` = "TRUE" ];then
         
@@ -822,7 +794,7 @@ function submit_dos_noscf(){
      res=`qsub ${pbs_file} | awk -F "." '{print $1}' `
      echo "$res     ${path_str}/${DOS_NOSCF_PATH}     Q" >> ${pwd_str}/${tmp_ID}
  
-     taskindex=$[$taskindex + 1]
+     taskindex=$[ ${taskindex} + 1 ]
 }
 
 function submit_dos(){
@@ -924,19 +896,23 @@ function submit_dos(){
            fi
            if [ ${run_bol} = "TRUE" ]
            then          
-             current_job_path=${pwd_str}/${a}/${RUNNING_PATH}/${DOS_SCF_PATH}     
-             if [ `checkIsRecordedJob ${current_job_path}`x = "FALSEx" ];then
-                if [ `checkIsRunningJob ${current_job_path} RECORD`x = "FALSEx" ];then                    
-                   submit_dos_scf   ${pwd_str}/${a}  ${RUNNING_PATH}
-                fi          
-             fi
+             current_job_path=${pwd_str}/${a}/${RUNNING_PATH}/${DOS_SCF_PATH} 
+                if [ `check_isNormalFinish ${current_job_path}/OUTCAR`x = "FALSEx" ] ;then   
+                   if [ `checkIsRecordedJob ${current_job_path}`x = "FALSEx" ];then
+                      if [ `checkIsRunningJob ${current_job_path} RECORD`x = "FALSEx" ];then                    
+                         submit_dos_scf   ${pwd_str}/${a}  ${RUNNING_PATH}
+                      fi          
+                   fi 
+                fi
              
-             current_job_path=${pwd_str}/${a}/${RUNNING_PATH}/${DOS_NOSCF_PATH}     
-             if [ `checkIsRecordedJob ${current_job_path}`x = "FALSEx" ];then
-               if [ `checkIsRunningJob ${current_job_path} RECORD`x = "FALSEx" ];then                     
-                   submit_dos_noscf ${pwd_str}/${a}  ${RUNNING_PATH}          
-               fi 
-             fi        
+             current_job_path=${pwd_str}/${a}/${RUNNING_PATH}/${DOS_NOSCF_PATH} 
+               if [ `check_isNormalFinish ${current_job_path}/OUTCAR`x = "FALSEx" ] ;then   
+                  if [ `checkIsRecordedJob ${current_job_path}`x = "FALSEx" ];then
+                    if [ `checkIsRunningJob ${current_job_path} RECORD`x = "FALSEx" ];then                     
+                        submit_dos_noscf ${pwd_str}/${a}  ${RUNNING_PATH}          
+                    fi 
+                  fi
+               fi        
            fi
         fi    
      done
@@ -977,6 +953,8 @@ EOF
 cat>${PrefixShellname}_dos_noscf_para.in<<EOF
 ISTART = 1
 ICHARG = 11
+NSW    = 0             
+IBRION =  -1
 NEDOS = 2000
 ISMEAR = -5
 EOF
@@ -1046,12 +1024,21 @@ do
   
   INCAR_PARA_FILE="${PrefixShellname}_charge_para.in"
   RUNNING_PATH="N/bader"
-  submit_job   
+  submit_job  
+  
    
-  if [ "`check_all_jobs_state`x" = "TRUEx" ];then
-    break
+  if [ ${Is_Waiting_Mode}_x = "T_x" ];then
+     if [ "`check_all_jobs_state`x" = "TRUEx" ];then
+       break
+     fi
+  else
+     if [ "`check_all_jobs_state`x" = "TRUEx" ] || [ ${taskindex} = "0" ];then
+        break
+     fi
   fi
+  
   sleep 60
+  
 done
 
 echo "${taskindex} jobs are finished!" >> ${pwd_str}/${PrefixShellname}_bash.out
